@@ -1,0 +1,97 @@
+1. How many WebSocket instances are currently active? What are their URLs?
+
+General
+
+Request URL:
+wss://ws2.qxbroker.com/socket.io/?EIO=3&transport=websocket
+Request Method:
+GET
+Status Code:
+101 Switching Protocols
+
+Response Headers:
+
+cf-cache-status:
+DYNAMIC
+cf-ray:
+a402be251ba6897b-MAA
+connection:
+upgrade
+date:
+Thu, 24 Sep 2026 15:15:08 GMT
+sec-websocket-accept:
+Klut/12MnXfowqz/gQn6hD/57UQ=
+server:
+cloudflare
+server-timing:
+cfCacheStatus;desc="DYNAMIC"
+server-timing:
+cfEdge;dur=7,cfOrigin;dur=442
+upgrade:
+websocket
+via:
+1.1 google
+
+
+Request Headers:
+accept-encoding:
+gzip, deflate, br, zstd
+accept-language:
+en-GB,en-US;q=0.9,en;q=0.8
+cache-control:
+no-cache
+connection:
+Upgrade
+host:
+ws2.qxbroker.com
+origin:
+https://qxbroker.com
+pragma:
+no-cache
+sec-websocket-extensions:
+permessage-deflate; client_max_window_bits
+sec-websocket-key:
+6xO5ZVLIKRbOjJRyt05jzQ==
+sec-websocket-version:
+13
+upgrade:
+websocket
+user-agent:
+Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36
+
+
+2. Does Quotex use a Web Worker or SharedWorker for the chart/ticks, or are WebSockets in window?
+3. What exact messages are received by the chart? Where do the live price ticks come from?
+
+3. What exact messages are received by the chart? Where do the live price ticks come from?
+Quotex runs on Socket.IO (Engine.IO v3). Incoming WebSocket messages follow this structure:
+
+Keepalive Packets (Passed Through Immediately):
+Engine.IO v3 client ping: 2
+Engine.IO v3 server pong: 3 (Never delayed, preventing keepalive timeout disconnects).
+Authentication & Session:
+Client sends: 42["authorization", {"session":"<SSID>", "isDemo": 1, ...}]
+Live Chart Ticks & Quotes:
+quote: Live streaming price updates for the active asset.
+json
+42["quote", {"asset":"EURUSD_otc", "bid":1.08452, "ask":1.08454, "time":1711312345}]
+candle: Finished/updated candlestick updates.
+json
+42["candle", {"asset":"EURUSD_otc", "timeframe":60, "open":1.0845, "close":1.0846, "high":1.0848, "low":1.0843}]
+live-deal: Live trades placed by other traders shown on the chart's social widget:
+json
+42["live-deal", {"asset":"...", "amount":..., "dir":"call", "time":...}]
+Per PRD §3.2 and reverse-engg.txt: Standard string events starting with 42[...] are delayable; any multipart binary events starting with 45 pass through untouched.
+
+
+4. Look at the extension popup on Quotex: what events are listed in the Frame Inspector, what FPS do they have, and which one is checked?
+
+When you install the extension and navigate to https://qxbroker.com/en/demo-trade:
+
+Events listed in Frame Inspector:
+quote (or tick): The high-frequency price feed, typically streaming at ~8.0 to 15.0 FPS.
+live-deal: Global platform trade feed, typically streaming at ~1.0 to 4.0 FPS.
+instruments / signal: Low frequency background syncs (< 0.5 FPS).
+Which event should be checked?:
+Check quote (and optionally candle / live-deal).
+By default, the allowlist is empty (0.0s delay, fail-open). Only checking the box for quote activates playback delay on the live chart ticks.

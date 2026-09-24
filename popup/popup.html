@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Live Data Playback Delay</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="app-container">
+    <!-- Header -->
+    <header class="app-header">
+      <div class="logo-area">
+        <div class="status-dot" id="statusDot"></div>
+        <h1 class="app-title">Playback Delay</h1>
+        <span class="protocol-badge">EIO v3</span>
+      </div>
+      <label class="switch" title="Toggle delay engine for current site">
+        <input type="checkbox" id="originToggle">
+        <span class="slider round"></span>
+      </label>
+    </header>
+
+    <!-- Origin info banner -->
+    <div class="origin-bar">
+      <span class="origin-label">Target Site:</span>
+      <span class="origin-url" id="originUrl">Detecting...</span>
+    </div>
+
+    <!-- Reload Notice -->
+    <div id="reloadNotice" class="reload-notice hidden">
+      <div class="reload-notice-content">
+        <span>⚠️ <strong>Reload required</strong> to activate proxy constructor.</span>
+        <button id="btnReloadTab" class="btn-reload">Reload Page 🔄</button>
+      </div>
+    </div>
+
+    <!-- Main Controls Section -->
+    <main class="main-content">
+      <!-- Speed Slider Card -->
+      <section class="card">
+        <div class="card-header">
+          <span class="card-title">Playback Speed</span>
+          <span class="rate-value" id="rateDisplay">1.00x</span>
+        </div>
+        
+        <div class="slider-container">
+          <input type="range" id="rateSlider" min="0.1" max="1.0" step="0.05" value="1.0">
+          <div class="slider-labels">
+            <span>0.1x (Slow)</span>
+            <span>0.5x</span>
+            <span>1.0x (Live)</span>
+          </div>
+        </div>
+
+        <div class="presets-row">
+          <button class="btn-preset" data-rate="0.1">0.1x</button>
+          <button class="btn-preset" data-rate="0.25">0.25x</button>
+          <button class="btn-preset" data-rate="0.5">0.5x</button>
+          <button class="btn-preset active" data-rate="1.0">1.0x (Live)</button>
+        </div>
+      </section>
+
+      <!-- Frame Inspector Table Card -->
+      <section class="card">
+        <div class="card-header">
+          <span class="card-title">Frame Inspector</span>
+          <span class="subtitle">Select events to delay</span>
+        </div>
+        
+        <div class="inspector-table-wrapper">
+          <table class="inspector-table">
+            <thead>
+              <tr>
+                <th>Delay</th>
+                <th>Event Name</th>
+                <th>Type</th>
+                <th class="text-right">FPS</th>
+              </tr>
+            </thead>
+            <tbody id="inspectorTableBody">
+              <tr>
+                <td colspan="4" class="empty-state">Waiting for WebSocket activity...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- Settings & Metrics Card -->
+      <section class="card grid-2">
+        <div>
+          <label class="setting-label">Overflow Policy</label>
+          <select id="overflowSelect" class="styled-select">
+            <option value="catch-up">Catch-Up (Smooth Drain)</option>
+            <option value="drop-oldest">Drop Oldest (Keep Fresh)</option>
+          </select>
+        </div>
+        <div>
+          <label class="setting-label">Dropped Frames</label>
+          <div class="metric-value" id="droppedCount">0</div>
+        </div>
+      </section>
+
+      <!-- Action Footer -->
+      <footer class="action-footer">
+        <button id="btnPanic" class="btn-danger" title="Instantly clear queue & restore live speed (Alt+Shift+0)">
+          ⚡ Panic Flush (1.0x)
+        </button>
+        <div class="profile-actions">
+          <button id="btnExport" class="btn-secondary" title="Export profile JSON">Export</button>
+          <button id="btnImport" class="btn-secondary" title="Import profile JSON">Import</button>
+          <input type="file" id="importFile" accept=".json" style="display:none;">
+        </div>
+      </footer>
+    </main>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

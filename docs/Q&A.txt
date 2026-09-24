@@ -1,0 +1,22 @@
+Q: What does EIO=3 and EIO=4 mean in the WebSocket URL?
+
+A:
+"EIO" stands for Engine.IO, the underlying real-time transport and connection layer of Socket.IO.
+The number specifies the protocol specification version:
+
+1. EIO=3 (Engine.IO v3 / Socket.IO v2.x):
+   - Heartbeat ping/pong is CLIENT-DRIVEN:
+     The browser client sends ping `2` every `pingInterval` (e.g. every 25 seconds).
+     The server replies with pong `3`.
+   - If the extension were to delay the server's pong `3`, the browser client would think the server is dead and disconnect.
+   - Handshake open frame: `0{"sid":"...","pingInterval":25000,"pingTimeout":60000}`.
+
+2. EIO=4 (Engine.IO v4 / Socket.IO v3.x & v4.x):
+   - Heartbeat ping/pong is SERVER-DRIVEN:
+     The server sends ping `2`.
+     The browser client must immediately reply with pong `3`.
+   - If the extension delays the server's ping `2`, the client's reply is late and the server drops the socket.
+   - Also features improved binary payload framing.
+
+In Quotex:
+`wss://ws2.qxbroker.com/socket.io/?EIO=3&transport=websocket` uses Engine.IO v3. Both ping (`2`) and pong (`3`) are passed through immediately by the extension so the connection remains stable even when playback is delayed down to 0.1x.

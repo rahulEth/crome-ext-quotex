@@ -1,0 +1,33 @@
+# Dependencies
+node_modules/
+harness/node_modules/
+package-lock.json
+
+# Environment and Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS Generated Files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDE and Editor Files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+*.sublime-project
+*.sublime-workspace
+
+# Temporary & Build Artifacts
+*.tmp
+*.bak
+scratch/

@@ -1,0 +1,13 @@
+{
+  "name": "ldpd-test-harness",
+  "version": "1.0.0",
+  "description": "Engine.IO v3 Test Harness Server for Live Data Playback Delay Extension Verification",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "ws": "^8.17.0"
+  }
+}
