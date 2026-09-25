@@ -1,12 +1,44 @@
+================================================================================
+INJECT.JS - COMPLETE LINE-BY-LINE EXPLANATION & ARCHITECTURE GUIDE
+File: content/inject.js
+================================================================================
+
+OVERVIEW:
+inject.js runs in the MAIN world context of the target trading page (e.g. Quotex).
+Its core mission is to intercept native WebSocket traffic, isolate market/chart
+data frames from keepalive/heartbeat packets, and replay chart ticks at a slower,
+controlled rate (e.g., 0.5x, 0.2x speed) without causing disconnections, UI freezes,
+or socket timeouts.
+
+--------------------------------------------------------------------------------
+LINE-BY-LINE BREAKDOWN:
+--------------------------------------------------------------------------------
+
+Line 1:
 // content/inject.js - MAIN World WebSocket Interceptor & EIO v3 Playback Delay Engine
+- Informational comment explaining that this file intercepts WebSocket traffic and delays Engine.IO version 3 (EIO v3) packets.
 
+Line 3:
 (function () {
+- Begins an Immediately Invoked Function Expression (IIFE) to encapsulate all variables so they do not pollute the global window namespace.
+
+Line 4:
   if (window.__LDPD_INJECTED__) return;
+- Prevents double-injection. If the script was already injected into the page, it exits immediately.
+
+Line 5:
   window.__LDPD_INJECTED__ = true;
+- Sets the injection guard flag on the `window` object to prevent any future duplicate runs.
 
+Line 7:
   console.log("[LDPD Inject] Initializing Engine.IO v3 Playback Delay Shim...");
+- Logs an initialization message to the browser console.
 
+Line 9:
   // State Configuration
+- Comment introducing the global configuration object.
+
+Line 10 - 25:
   const state = {
     rate: 1.0,                       // 0.1x to 1.0x
     allowlist: new Set(),            // Set of event names to delay
@@ -23,24 +55,53 @@
     // Frame Inspector FPS Tracking
     eventStats: new Map()            // eventName -> { count, lastSeen, sample, isBinary }
   };
+- Defines the active state configuration for playback pacing:
+  - `rate`: Playback speed ratio (1.0 = normal/real-time speed, 0.5 = half speed, etc.).
+  - `allowlist`: Set containing event names that should be delayed (e.g., chart ticks like "live_data"). Any event NOT in this set passes through immediately without delay.
+  - `overflowPolicy`: Strategy when queue grows too large: "catch-up" (fast-forward) or "drop-oldest" (discard older frames).
+  - `enabled`: Master switch to turn the delay on or off.
+  - `panic`: Boolean flag indicating if panic mode (immediate bypass and queue flush) is active.
+  - `disconnectHistory`: Array of timestamps recording socket disconnections to detect reconnect loops.
+  - `watchdogTriggered`: Guard flag to prevent repeated watchdog alerts.
+  - `lastPumpTime`: High-resolution timestamp of the last time the queue loop executed.
+  - `droppedFrames`: Count of discarded packets.
+  - `eventStats`: Map storing metrics for every observed event name to feed the UI Frame Inspector.
 
+Line 27 - 28:
   // Create UI Banner Container
   let bannerElement = null;
+- Holds reference to the floating on-screen warning banner DOM element.
+
+Line 29:
   function updateBanner(lagSeconds) {
+- Helper function that creates, updates, or destroys the on-screen warning banner showing current playback lag.
+
+Line 30:
     if (lagSeconds > 1.0 && !state.panic && state.enabled && state.allowlist.size > 0) {
+- Condition: displays the banner only if the playback lag exceeds 1.0 second, panic mode is NOT active, the extension is enabled, and there are events actively being delayed.
+
+Line 31 - 36:
       if (!bannerElement) {
         bannerElement = document.createElement("div");
         bannerElement.id = "ldpd-delay-banner";
         bannerElement.className = "ldpd-banner-visible";
         document.body ? document.body.appendChild(bannerElement) : document.documentElement.appendChild(bannerElement);
       }
+- Dynamically creates the banner <div>, sets its ID and CSS class, and appends it to `document.body` (or `document.documentElement` if body is not yet ready).
+
+Line 37:
       bannerElement.textContent = `⚠️ Playback Delayed by ${lagSeconds.toFixed(1)}s — Data is Not Live`;
+- Updates banner text to clearly alert the user that the chart is delayed by X seconds and market data is not live.
+
+Line 38 - 41:
     } else if (bannerElement) {
       bannerElement.remove();
       bannerElement = null;
     }
   }
+- If lag is under 1 second or delay is disabled/panicked, removes the banner from the DOM and clears the reference.
 
+Line 44 - 50:
   // Panic Key Handler (Alt + Shift + 0)
   window.addEventListener("keydown", (e) => {
     if (e.altKey && e.shiftKey && e.code === "Digit0") {
@@ -48,7 +109,9 @@
       triggerPanic();
     }
   });
+- Global keyboard shortcut listener for "Alt + Shift + 0" emergency killswitch. Prevents default browser actions and triggers `triggerPanic()`.
 
+Line 52 - 61:
   function triggerPanic() {
     console.warn("[LDPD Panic] Panic key triggered! Flushing queue & restoring 1.0x native pass-through.");
     state.panic = true;
@@ -59,7 +122,12 @@
       ws.__ldpd_flushQueue();
     }
   }
+- Emergency procedure:
+  - Sets `state.panic = true` and restores playback speed to 1.0x.
+  - Removes the delay banner.
+  - Loops through all active WebSockets and immediately flushes any queued messages directly into the application, restoring live pass-through.
 
+Line 63 - 76:
   // Event Statistics Collector (for Frame Inspector)
   function recordEventStat(eventName, samplePayload, isBinary = false) {
     const now = performance.now();
@@ -74,7 +142,10 @@
       stat.sample = typeof samplePayload === "string" ? samplePayload.substring(0, 80) : "[Binary Data]";
     }
   }
+- Tracks incoming event types:
+  - Measures frequency, last arrival time, and keeps an 80-character payload snippet for debugging/inspection in the extension popup.
 
+Line 78 - 110:
   // Broadcast Metrics to ISOLATED Bridge
   setInterval(() => {
     const now = performance.now();
@@ -108,7 +179,12 @@
       }
     }));
   }, 1000);
+- Runs every 1 second:
+  - Calculates the rolling events-per-second (FPS) for each event type.
+  - Resets counters for the next window.
+  - Dispatches a custom DOM event `__ldpd_metrics_response__` containing live metrics so `content.js` (in the isolated world) can bridge it to the popup UI.
 
+Line 112 - 128:
   // Profile Update Listener from ISOLATED Bridge
   window.addEventListener("__ldpd_config_update__", (e) => {
     const { rate, allowlist, overflowPolicy, enabled } = e.detail;
@@ -126,23 +202,39 @@
     }
     console.log("[LDPD Inject] Profile updated and queues flushed:", { rate: state.rate, allowlist: Array.from(state.allowlist), policy: state.overflowPolicy });
   });
+- Listens for configuration changes dispatched from the extension popup/bridge:
+  - Clamps `rate` safely between 0.1x and 1.0x.
+  - Updates the `allowlist` and `overflowPolicy`.
+  - Flushes existing queues immediately when settings change so the chart does not suffer missing candles or gaps during policy transitions.
 
+Line 130 - 133:
   // Track active WebSockets
   const activeSockets = new Set();
   const NativeWebSocket = window.WebSocket;
+- `activeSockets`: Set holding references to currently open WebSocket instances.
+- `NativeWebSocket`: Saves the original browser `WebSocket` constructor before overriding it.
 
-  // Proxy WebSocket Constructor
+Line 135 - 138:
   function LDPDWebSocket(url, protocols) {
     const ws = protocols ? new NativeWebSocket(url, protocols) : new NativeWebSocket(url);
     activeSockets.add(ws);
+- Custom wrapper constructor. Calls the original `NativeWebSocket` with given URL and protocols, then tracks the socket instance in `activeSockets`.
 
+Line 139 - 145:
     // Queue & Engine.IO v3 State per WebSocket
     const queue = [];
     let isPendingBinaryAttachment = false;
     let pendingBinaryHeader = null; // Stored placeholder text frame
     let lastNativeArrivalTime = 0;
     let lastScheduledEmitTime = 0;
+- Per-socket state:
+  - `queue`: Array storing delayed messages waiting for their scheduled playback timestamp.
+  - `isPendingBinaryAttachment`: Flag indicating an EIO v3 binary event header arrived and we are awaiting its companion binary frame.
+  - `pendingBinaryHeader`: Cached text header frame while awaiting the binary payload.
+  - `lastNativeArrivalTime`: Arrival timestamp of the previous incoming message from the real network.
+  - `lastScheduledEmitTime`: Target emit timestamp of the previous delayed message.
 
+Line 146 - 154:
     // Custom Message Handlers Storage
     let customOnMessage = null;
     const messageListeners = new Set();
@@ -152,7 +244,9 @@
       get() { return customOnMessage; },
       set(fn) { customOnMessage = fn; }
     });
+- Intercepts the `ws.onmessage` property setter/getter so the target web application's handler is stored in `customOnMessage` instead of receiving native events directly.
 
+Line 156 - 173:
     // Hook addEventListener
     const nativeAddEventListener = ws.addEventListener.bind(ws);
     const nativeRemoveEventListener = ws.removeEventListener.bind(ws);
@@ -170,7 +264,10 @@
       }
       return nativeRemoveEventListener(type, listener, options);
     };
+- Overrides `addEventListener` and `removeEventListener`:
+  - When the web application registers a `"message"` listener, it intercepts it and saves it into `messageListeners` so we can trigger it only when our pacing queue is ready.
 
+Line 174 - 182:
     // Dispatcher function to application code
     function emitMessageToApp(event) {
       if (typeof customOnMessage === "function") {
@@ -180,7 +277,12 @@
         try { listener.call(ws, event); } catch (err) { console.error("[LDPD] Error in application message listener:", err); }
       }
     }
+- Dispatches a message event to the target application:
+  - Invokes `customOnMessage` if defined.
+  - Invokes all listeners stored in `messageListeners`.
+  - Wrapped in `try...catch` so an application-side crash does not break the pacing pump.
 
+Line 184 - 196:
     // Flush pending queue helper (ensures strict FIFO emission)
     ws.__ldpd_flushQueue = function () {
       while (queue.length > 0) {
@@ -194,26 +296,34 @@
       lastNativeArrivalTime = 0;
       lastScheduledEmitTime = 0;
     };
+- Helper method to immediately empty the queue in First-In-First-Out (FIFO) order and reset timing benchmarks. Handles both single frames and compound (header + binary) packet pairs.
 
+Line 198 - 202:
     // Queue Pacing Pump (rAF)
     function pumpQueue() {
       const now = performance.now();
       state.lastPumpTime = now;
+- The core animation loop (`requestAnimationFrame`). Runs every frame (approx. 60-120 times/sec). Captures the current timestamp and updates `state.lastPumpTime`.
 
+Line 203 - 207:
       // Dead-man check: flush if pump stalled > 2000ms
       if (now - state.lastPumpTime > 2000 && queue.length > 0) {
         console.warn("[LDPD Dead-man] Pump stalled > 2000ms. Flushing queue.");
         ws.__ldpd_flushQueue();
       }
+- Watchdog safety check: if browser throttling or a stalled tab paused the pump for more than 2 seconds while messages are queued, flushes everything to avoid huge freezes.
 
+Line 209 - 214:
       // Check current lag duration
       if (queue.length > 0) {
         const oldestItem = queue[0];
         const lagMs = now - oldestItem.nativeTime;
         updateBanner(lagMs / 1000);
+- Calculates lag: time elapsed since the oldest queued item originally arrived from the network, and updates the on-screen warning banner.
 
+Line 215 - 228:
         // Check Hard Queue Ceiling (10,000 items or 120s max lag)
-        if (queue.length > 10000 || lagMs > 30000) {
+        if (queue.length > 10000 || lagMs > 120000) {
           if (state.overflowPolicy === "drop-oldest") {
             const dropped = queue.shift();
             state.droppedFrames += (dropped.type === "compound" ? dropped.events.length : 1);
@@ -229,7 +339,13 @@
       } else {
         updateBanner(0);
       }
+- Overflow Protection:
+  - Triggered if queue exceeds 10,000 items OR lag exceeds 120 seconds (2 minutes).
+  - If policy is "drop-oldest": Discards the oldest queued item and increments dropped frames counter.
+  - If policy is "catch-up": Rescales all scheduled delivery times to spread evenly across 5 seconds (5000 ms), playing back items in rapid succession without dropping data or freezing the page.
+  - If queue is empty: resets banner to 0 lag.
 
+Line 233 - 241:
       // Process due items
       while (queue.length > 0 && queue[0].scheduledTime <= now) {
         const item = queue.shift();
@@ -239,12 +355,16 @@
           emitMessageToApp(item.event);
         }
       }
+- Delivers all items whose scheduled delivery time has arrived (`scheduledTime <= now`) to the application via `emitMessageToApp`.
 
+Line 243 - 246:
       if (ws.readyState === NativeWebSocket.OPEN || queue.length > 0) {
         requestAnimationFrame(pumpQueue);
       }
     }
+- Keeps the loop running via `requestAnimationFrame` as long as the WebSocket is open or items remain in the queue.
 
+Line 248 - 254:
     // Tab visibility handling
     document.addEventListener("visibilitychange", () => {
       if (document.visibilityState === "hidden" && queue.length > 0) {
@@ -252,31 +372,44 @@
         ws.__ldpd_flushQueue();
       }
     });
+- When user switches away from the browser tab (`visibilityState === "hidden"`), browsers heavily throttle timers and rAF. This drains the queue immediately to avoid an unbounded backlog while hidden.
 
+Line 256 - 258:
     // Native Message Interceptor
     nativeAddEventListener("message", (nativeEvent) => {
       const now = performance.now();
+- Listens to raw incoming WebSocket messages straight from the native socket.
 
+Line 260 - 265:
       // If panic mode or disabled or rate === 1.0x, flush any backlog first then pass through directly
       if (state.panic || !state.enabled || state.rate >= 0.99) {
         if (queue.length > 0) ws.__ldpd_flushQueue();
         emitMessageToApp(nativeEvent);
         return;
       }
+- Bypass check: If panic mode is on, or delay is disabled, or rate is normal (1.0x), flush any backlog immediately and pass the event directly to the app without delay.
 
+Line 267:
       const data = nativeEvent.data;
+- Extracts the message payload (string, ArrayBuffer, or Blob).
 
+Line 269 - 272:
       // -------------------------------------------------------------
       // 1. BINARY ATTACHMENT FRAME CHECK (EIO v3 binary payload byte 0x04)
       // -------------------------------------------------------------
       if (data instanceof ArrayBuffer || ArrayBuffer.isView(data) || data instanceof Blob) {
+- Checks if the incoming message is a binary packet.
+
+Line 273 - 277:
         if (isPendingBinaryAttachment && pendingBinaryHeader) {
           // Compound pair complete!
           const headerEv = pendingBinaryHeader.event;
           const eventName = pendingBinaryHeader.eventName;
 
           recordEventStat(eventName, "[Binary Attachment]", true);
+- If the socket was waiting for a binary payload following a binary placeholder header (EIO v3 type 5), the compound pair is now complete.
 
+Line 280 - 293:
           if (state.allowlist.has(eventName)) {
             // Queue atomic compound pair
             const nativeGap = lastNativeArrivalTime ? (now - lastNativeArrivalTime) : 0;
@@ -291,29 +424,43 @@
               nativeTime: now,
               scheduledTime
             });
+- If the event is in the allowlist, calculates the stretched arrival gap:
+  - `stretchedGap = nativeGap * (1 / state.rate)` (e.g., at 0.5x speed, the gap is doubled).
+  - Pushes both the text header and the binary frame together as an atomic compound pair into `queue`.
+
+Line 294 - 299:
           } else {
             // Event not in allowlist -> Flush queued backlog first to maintain FIFO sequence, then pass both through
             if (queue.length > 0) ws.__ldpd_flushQueue();
             emitMessageToApp(headerEv);
             emitMessageToApp(nativeEvent);
           }
+- If the event is NOT in the allowlist, flushes the queue first to preserve strict FIFO message ordering, then emits both header and binary frame immediately.
 
+Line 301 - 304:
           // Reset pending state
           isPendingBinaryAttachment = false;
           pendingBinaryHeader = null;
           return;
         }
+- Clears pending binary flags and exits handler.
 
+Line 307 - 311:
         // If unexpected binary frame, flush backlog first then pass through immediately (fail-open)
         if (queue.length > 0) ws.__ldpd_flushQueue();
         emitMessageToApp(nativeEvent);
         return;
       }
+- Fail-open safety: If an unexpected binary frame arrives without a preceding header, flush queue and pass it through immediately.
 
+Line 314 - 316:
       // -------------------------------------------------------------
       // 2. TEXT FRAME PARSING (Engine.IO v3 & Socket.IO v2)
       // -------------------------------------------------------------
       if (typeof data === "string") {
+- Checks if incoming packet is text.
+
+Line 317 - 323:
         // Engine.IO Control Packets: 0 (open), 1 (close), 2 (ping), 3 (pong), 5 (upgrade), 6 (noop)
         const eioType = data.charAt(0);
         if (["0", "1", "2", "3", "5", "6"].includes(eioType)) {
@@ -321,18 +468,26 @@
           emitMessageToApp(nativeEvent);
           return;
         }
+- CRITICAL ENGINE.IO LOGIC:
+  - Packets starting with '2' (ping) or '3' (pong) are keepalives.
+  - They MUST NOT BE DELAYED. They are passed through immediately to prevent the server or client from disconnecting with a `ping timeout`.
 
+Line 325 - 328:
         // Engine.IO Message Packet (Type 4)
         if (eioType === "4") {
           const eioBody = data.substring(1);
+- Packet type '4' indicates an Engine.IO message payload. Strips the leading '4' to inspect the Socket.IO body.
 
+Line 329 - 334:
           // Socket.IO Text Event: 42["<event>", ...]
           if (eioBody.startsWith("2[")) {
             try {
               const parsed = JSON.parse(eioBody.substring(1));
               const eventName = parsed[0];
               recordEventStat(eventName, eioBody, false);
+- Detects standard Socket.IO event packet (starts with "2[", so full EIO string is "42[...]"). Parses the JSON array to extract the event name (e.g. `parsed[0]`).
 
+Line 336 - 351:
               if (state.allowlist.has(eventName)) {
                 // Calculate stretched target time
                 const nativeGap = lastNativeArrivalTime ? (now - lastNativeArrivalTime) : 0;
@@ -353,7 +508,12 @@
               // Fail-open on parse error
             }
           }
+- If the text event name is in the allowlist:
+  - Calculates the stretched time gap based on `state.rate`.
+  - Pushes the event into `queue` with its target `scheduledTime`.
+  - Returns early so it is not emitted immediately.
 
+Line 357 - 376:
           // Socket.IO Binary Event Placeholder: 45<count>-["<event>", {_placeholder: true}] or 51-["<event>", ...]
           if (eioBody.startsWith("5") || /^5\d+-/.test(eioBody)) {
             try {
@@ -375,12 +535,17 @@
           }
         }
       }
+- Detects binary event headers in Socket.IO v2 (packet type 5, e.g., `451-["eventName", ...]`).
+- Extracts the event name, flags `isPendingBinaryAttachment = true`, and holds the header in `pendingBinaryHeader` until the companion binary frame arrives in the next WebSocket packet.
 
+Line 379 - 382:
       // Fail-open: flush backlog first then pass through any unknown string frame immediately
       if (queue.length > 0) ws.__ldpd_flushQueue();
       emitMessageToApp(nativeEvent);
     });
+- Fail-open fallback: If a frame is unrecognized or not in the allowlist, flushes the queue first to preserve order, and delivers the frame immediately.
 
+Line 384 - 399:
     // Monitor socket close for Watchdog
     ws.addEventListener("close", () => {
       activeSockets.delete(ws);
@@ -397,22 +562,36 @@
         alert("⚠️ Live Data Playback Delay Watchdog: Connection drops detected. Throttling has been auto-disabled for this origin.");
       }
     });
+- Safety Watchdog:
+  - Listens to socket closures.
+  - Removes the socket from `activeSockets`.
+  - Records disconnect timestamps over the last 60 seconds.
+  - If 2 or more disconnects occur within 60 seconds while delay is enabled, automatically turns off `state.enabled` and alerts the user to prevent continuous disconnect/reconnect loops.
 
+Line 401 - 404:
     // Start rAF pump
     requestAnimationFrame(pumpQueue);
 
     return ws;
   }
+- Starts the `pumpQueue` loop for this socket and returns the initialized WebSocket instance.
 
+Line 406 - 413:
   // Copy static properties & prototype chain
   LDPDWebSocket.prototype = NativeWebSocket.prototype;
   LDPDWebSocket.CONNECTING = NativeWebSocket.CONNECTING;
   LDPDWebSocket.OPEN = NativeWebSocket.OPEN;
   LDPDWebSocket.CLOSING = NativeWebSocket.CLOSING;
   LDPDWebSocket.CLOSED = NativeWebSocket.CLOSED;
+- Ensures full prototype and static property compatibility with the native browser WebSocket API (e.g. `WebSocket.OPEN === 1`).
 
+Line 414 - 416:
   // Replace native WebSocket constructor
   window.WebSocket = LDPDWebSocket;
+- Monkey-patches `window.WebSocket` so all subsequent WebSocket connections created by the web application use `LDPDWebSocket`.
 
+Line 417 - 418:
   console.log("[LDPD Inject] WebSocket shim successfully hooked in MAIN world.");
 })();
+- Logs completion message to console and closes the IIFE.
+================================================================================
